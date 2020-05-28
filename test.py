@@ -288,10 +288,15 @@ class clean_snapshots_test(unittest.TestCase):
     def test_can_clean_snapshots(self, mock_sleep):
         client = boto3.client('ec2')
         stubber = Stubber(client)
+        tags = [
+            {"Key": "UUID", "Value": "01c6b711-a7d4-4bdf-bb2b-10b4b60594bc"},
+            {"Key": "Name", "Value": "myvolume"},
+        ]
         snapshots = [
-            {"StartTime": datetime.datetime.now(), "State": "available", "SnapshotId": "old", "Tags": [{"Key": "UUID", "Value": "01c6b711-a7d4-4bdf-bb2b-10b4b60594bc"}]},
-            {"StartTime": datetime.datetime.now() + datetime.timedelta(days=1), "State": "available", "SnapshotId": "new", "Tags": [{"Key": "UUID", "Value": "01c6b711-a7d4-4bdf-bb2b-10b4b60594bc"}]},
-            {"StartTime": datetime.datetime.now() + datetime.timedelta(days=2), "State": "pending", "SnapshotId": "newest", "Tags": [{"Key": "UUID", "Value": "01c6b711-a7d4-4bdf-bb2b-10b4b60594bc"}]}
+            {"StartTime": datetime.datetime.now(), "State": "available", "SnapshotId": "old", "Tags": tags},
+            {"StartTime": datetime.datetime.now() + datetime.timedelta(days=1), "State": "available", "SnapshotId": "new", "Tags": tags},
+            {"StartTime": datetime.datetime.now() + datetime.timedelta(days=2), "State": "pending", "SnapshotId": "newest", "Tags": tags},
+            {"StartTime": datetime.datetime.now() + datetime.timedelta(days=2), "State": "pending", "SnapshotId": "backup", "Tags": tags + [{"Key": "aws:dlm:lifecycle:schedule-name", "Value": "Default Schedule"}]},
         ]
         stubber.add_response('describe_snapshots', {"Snapshots": snapshots})
         stubber.add_response('delete_snapshot', [], {"SnapshotId": "old"})
@@ -300,6 +305,7 @@ class clean_snapshots_test(unittest.TestCase):
         stubber.activate()
         ebspin_ec2 = ec2.Ec2(client)
         ebspin_ec2.clean_snapshots("01c6b711-a7d4-4bdf-bb2b-10b4b60594bc")
+        stubber.assert_no_pending_responses()
 
     @patch('time.sleep')
     def test_no_snapshots(self, mock_sleep):

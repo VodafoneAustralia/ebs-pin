@@ -62,7 +62,7 @@ class Base:
                 sys.exit(1)
 
         self.ec2.clean_old_volumes(self.options.uuid, volume_id)
-        self.ec2.clean_snapshots(self.options.uuid)
+        self.ec2.clean_snapshots(self.options.uuid, self.options.tags)
 
     def snapshot(self):
         logging.info("Finding volumes...")

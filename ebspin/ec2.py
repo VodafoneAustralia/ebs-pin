@@ -198,7 +198,7 @@ class Ec2:
             logging.info("No old volumes detected.")
 
     @backoff.on_exception(backoff.expo, Exception, max_tries=3)
-    def clean_snapshots(self, uuid):
+    def clean_snapshots(self, uuid, extra_tags={}):
         """Delete all snapshots matching UUID"""
 
         logging.info("Deleting snapshots...")
@@ -209,13 +209,17 @@ class Ec2:
         snapshots = self.client.describe_snapshots(Filters=filters)['Snapshots']
         if len(snapshots) > 0:
             for snapshot in snapshots:
-                logging.info("Deleting snapshot {}...".format(snapshot['SnapshotId']))
-                try:
-                    self.client.delete_snapshot(
-                        SnapshotId=snapshot['SnapshotId']
-                    )
-                except botocore.exceptions.ClientError as e:
-                    logging.critical('Failed to delete snapshot {}, error: {}'.format(snapshot['SnapshotId'], e.response))
+                tag_keys = [x["Key"] for x in snapshot['Tags']]
+                if tag_keys == ["UUID", "Name"] + [x for x in extra_tags]:  # if the snapshot has extra tags, it's probably managed outside of this script and we shouldn't touch it
+                    logging.info("Deleting snapshot {}...".format(snapshot['SnapshotId']))
+                    try:
+                        self.client.delete_snapshot(
+                            SnapshotId=snapshot['SnapshotId']
+                        )
+                    except botocore.exceptions.ClientError as e:
+                        logging.critical('Failed to delete snapshot {}, error: {}'.format(snapshot['SnapshotId'], e.response))
+                else:
+                    logging.info("Snapshot {} had additional unknown tags, skipping.".format(snapshot['SnapshotId']))
             logging.info("Snapshots deleted.")
         else:
             logging.info("No snapshots detected.")
