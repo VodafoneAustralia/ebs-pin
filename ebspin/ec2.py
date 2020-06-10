@@ -106,6 +106,10 @@ class Ec2:
         self.tag_snapshot(snapshot_id, tags)
 
         waiter = self.client.get_waiter('snapshot_completed')
+
+        waiter.interval = 5 # seconds between each attempt
+        waiter.max_attempts = 60 # maximum number of polling attempts before giving up
+
         waiter.wait(
             Filters=[
                 {
