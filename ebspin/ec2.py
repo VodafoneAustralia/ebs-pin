@@ -213,8 +213,9 @@ class Ec2:
         snapshots = self.client.describe_snapshots(Filters=filters)['Snapshots']
         if len(snapshots) > 0:
             for snapshot in snapshots:
-                tag_keys = [x["Key"] for x in snapshot['Tags']]
-                if tag_keys == ["UUID", "Name"] + [x for x in extra_tags]:  # if the snapshot has extra tags, it's probably managed outside of this script and we shouldn't touch it
+                actual_tag_keys = set([x["Key"] for x in snapshot['Tags']])
+                expected_tag_keys = set(["UUID", "Name"] + [x for x in extra_tags])
+                if actual_tag_keys == expected_tag_keys:  # if the snapshot has extra tags, it's probably managed outside of this script and we shouldn't touch it
                     logging.info("Deleting snapshot {}...".format(snapshot['SnapshotId']))
                     try:
                         self.client.delete_snapshot(
@@ -223,7 +224,8 @@ class Ec2:
                     except botocore.exceptions.ClientError as e:
                         logging.critical('Failed to delete snapshot {}, error: {}'.format(snapshot['SnapshotId'], e.response))
                 else:
-                    logging.info("Snapshot {} had additional unknown tags, skipping.".format(snapshot['SnapshotId']))
+                    unexpected_tags = actual_tag_keys - expected_tag_keys
+                    logging.info("Snapshot {} had additional unknown tags ({}), skipping.".format(snapshot['SnapshotId'], unexpected_tags))
             logging.info("Snapshots deleted.")
         else:
             logging.info("No snapshots detected.")
