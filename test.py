@@ -317,19 +317,31 @@ class clean_snapshots_test(unittest.TestCase):
             {"Key": "Team", "Value": "DevOps"},  # additional tag specified on CLI
         ]
         snapshots = [
-            {"StartTime": datetime.datetime.now(), "State": "available", "SnapshotId": "old", "Tags": tags},
-            {"StartTime": datetime.datetime.now() + datetime.timedelta(days=1), "State": "available", "SnapshotId": "new", "Tags": tags},
-            {"StartTime": datetime.datetime.now() + datetime.timedelta(days=2), "State": "pending", "SnapshotId": "newest", "Tags": list(reversed(tags))},  # tag order may not be deterministic?
+            {"StartTime": datetime.datetime.now(), "State": "available", "SnapshotId": "missing_tags_on_snapshot", "Tags": [x for x in tags if x["Key"] != "Team"]},  # if a new tag gets added to CLI
+            {"StartTime": datetime.datetime.now(), "State": "available", "SnapshotId": "same", "Tags": tags},
+            {"StartTime": datetime.datetime.now() + datetime.timedelta(days=1), "State": "available", "SnapshotId": "same_tags_just_newer", "Tags": tags},
+            {"StartTime": datetime.datetime.now() + datetime.timedelta(days=2), "State": "pending", "SnapshotId": "unordered_tags", "Tags": list(reversed(tags))},  # tag order may not be deterministic?
             {"StartTime": datetime.datetime.now() + datetime.timedelta(days=2), "State": "pending", "SnapshotId": "backup", "Tags": tags + [{"Key": "aws:dlm:lifecycle:schedule-name", "Value": "Default Schedule"}]},
+            {"StartTime": datetime.datetime.now() + datetime.timedelta(days=2), "State": "pending", "SnapshotId": "no_tags", "Tags": []},
         ]
         stubber.add_response('describe_snapshots', {"Snapshots": snapshots})
-        stubber.add_response('delete_snapshot', [], {"SnapshotId": "old"})
-        stubber.add_response('delete_snapshot', [], {"SnapshotId": "new"})
-        stubber.add_response('delete_snapshot', [], {"SnapshotId": "newest"})
+        stubber.add_response('delete_snapshot', [], {"SnapshotId": "missing_tags_on_snapshot"})
+        stubber.add_response('delete_snapshot', [], {"SnapshotId": "same"})
+        stubber.add_response('delete_snapshot', [], {"SnapshotId": "same_tags_just_newer"})
+        stubber.add_response('delete_snapshot', [], {"SnapshotId": "unordered_tags"})
         stubber.activate()
         ebspin_ec2 = ec2.Ec2(client)
         ebspin_ec2.clean_snapshots("01c6b711-a7d4-4bdf-bb2b-10b4b60594bc", extra_tags={"Team": "DevOps"})
         stubber.assert_no_pending_responses()
+
+    def test_can_delete_snapshot(self):
+                                       # tags on snapshot                   # tags known by CLI (ebs-pin)
+        assert ec2.can_delete_snapshot(["Team"],                            ["Name", "UUID", "Team"])   == False    # not ebs-pin, can't delete
+        assert ec2.can_delete_snapshot(["Name", "UUID", "Team"],            ["Name", "UUID", "Team"])   == True     # the same, can delete
+        assert ec2.can_delete_snapshot(["Name", "UUID", "Team", "Backup"],  ["Name", "UUID", "Team"])   == False    # has backup tag, can't delete
+        assert ec2.can_delete_snapshot(["Name", "UUID", "Backup"],          ["Name", "UUID"])           == False    # has backup tag, can't delete
+        assert ec2.can_delete_snapshot(["Name", "UUID", "Backup"],          ["Name", "UUID", "Team"])   == False    # has backup tag, can't delete
+        assert ec2.can_delete_snapshot(["Name", "UUID"],                    ["Name", "UUID", "Team"])   == True     # CLI has new tag, can delete
 
     @patch('time.sleep')
     def test_no_snapshots(self, mock_sleep):

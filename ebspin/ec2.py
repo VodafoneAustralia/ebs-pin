@@ -1,6 +1,7 @@
 import logging
 import backoff
 import botocore
+from typing import List
 
 
 class Ec2:
@@ -213,9 +214,9 @@ class Ec2:
         snapshots = self.client.describe_snapshots(Filters=filters)['Snapshots']
         if len(snapshots) > 0:
             for snapshot in snapshots:
-                actual_tag_keys = set([x["Key"] for x in snapshot['Tags']])
-                expected_tag_keys = set(["UUID", "Name"] + [x for x in extra_tags])
-                if actual_tag_keys == expected_tag_keys:  # if the snapshot has extra tags, it's probably managed outside of this script and we shouldn't touch it
+                snapshot_tags = set([x["Key"] for x in snapshot['Tags']])
+                cli_tags = set(["UUID", "Name"] + [x for x in extra_tags])
+                if can_delete_snapshot(snapshot_tags=snapshot_tags, cli_tags=cli_tags):
                     logging.info("Deleting snapshot {}...".format(snapshot['SnapshotId']))
                     try:
                         self.client.delete_snapshot(
@@ -224,8 +225,27 @@ class Ec2:
                     except botocore.exceptions.ClientError as e:
                         logging.critical('Failed to delete snapshot {}, error: {}'.format(snapshot['SnapshotId'], e.response))
                 else:
-                    unexpected_tags = actual_tag_keys - expected_tag_keys
-                    logging.info("Snapshot {} had additional unknown tags ({}), skipping.".format(snapshot['SnapshotId'], unexpected_tags))
+                    unexpected_tags = snapshot_tags.symmetric_difference(cli_tags)
+                    logging.info("Snapshot {} had different tags ({}), skipping.".format(snapshot['SnapshotId'], unexpected_tags))
             logging.info("Snapshots deleted.")
         else:
             logging.info("No snapshots detected.")
+
+
+def can_delete_snapshot(snapshot_tags: List[str], cli_tags: List[str]) -> bool:
+    """Determines whether or not a snapshot should be cleaned up, based on various scenarios."""
+
+    if not "Name" in snapshot_tags or not "UUID" in snapshot_tags:
+        return False
+
+    tags_missing_from_snapshot = [x for x in cli_tags if x not in snapshot_tags]
+    logging.debug(f"Tags that are present on CLI, but missing from snapshot: {tags_missing_from_snapshot}")
+    tags_missing_from_cli = [x for x in snapshot_tags if not x in cli_tags]
+    logging.debug(f"Tags that are present on snapshot, but missing from CLI: {tags_missing_from_cli}")
+
+    if len(tags_missing_from_snapshot) == 0:  # if all the tags on CLI are present on the snapshot and...
+        if len(tags_missing_from_cli) == 0:  # there are no new tags present on the snapshot
+            return True  # we can delete the snapshot
+    if len(tags_missing_from_cli) == 0:  # if the snapshot has all the tags from the CLI (but the CLI potentially has new ones)
+        return True  # we can also delete it
+    return False
