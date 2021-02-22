@@ -180,7 +180,7 @@ class Ec2:
         )
         return volume_id
 
-    @backoff.on_exception(backoff.expo, Exception, max_tries=3)
+    @backoff.on_exception(backoff.expo, Exception, max_tries=3, interval=10)
     def clean_old_volumes(self, uuid, volume_id):
         """Delete all volumes matching UUID, except the one currently attached"""
 
